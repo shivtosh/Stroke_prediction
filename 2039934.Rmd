@@ -1,0 +1,682 @@
+---
+title: "Untitled"
+output: html_document
+date: '2022-04-23'
+---
+
+---
+title: "DDA"
+author: "Sanket"
+date: "12/04/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)      
+library(naniar)         
+library(caTools)        
+library(ggplot2)
+library(dplyr)
+```
+
+#import the Dataset
+
+```{r}
+stroke_data = read.csv("/Users/shivangidubey/Documents/DDA/final_hdfs_pyspark files/healthcare-dataset-stroke-data.csv")
+```
+
+#Check the structure.
+```{r}
+str(stroke_data)
+
+```
+- Structure of dataset displays attributes and their datatype present is the dataset.
+
+
+```{r}
+unique(stroke_data$gender)
+unique(stroke_data$ever_married)
+unique(stroke_data$work_type)
+unique(stroke_data$Residence_type)
+unique(stroke_data$smoking_status)
+```
+- Unique function terminates duplicate values and displays unique values from attributes.
+
+# Attributes
+#Description of Data
+
+1. id - unique identification number for the patients
+2. gender - "Male", "Female" or "Other"
+3. age - Contains age of every patients
+4. hypertension - Diplays if the patient has hypertension or not in the form of "0" and "1", 0 displays pateint does not have hypertension and 1 displays patient has hypertension
+5. heart_disease - 0 displays patient does not have heart disease and 1 displays patient has heart disease.
+6. ever_married - "Yes" if patient is married and "No" if patient is not married
+7. work_type - This displays patient has job or not in the form of "Private", Self-employed", "Govt_job", "children", "Never_worked".
+8. Residence_type - It display whether patient lives in "Rural" area or "Urban" area.
+9. avg_glucose_level - It displays average glucose level in blood of patient.
+10. bmi - It displays Body Mass Index of patients.
+11. smoking_status - It displays the smoking status of patient, i.e. "formerly_smoked", "never_smoked", "smokes" or "Unknown".
+12. stroke - It displays the patient had a stroke or not. "1" then patient had a stroke, "0" then patient didn't had a stroke.
+
+
+# Next task is to convert the class attributes TO suitable datatypes.
+```{r}
+sapply(stroke_data, class)
+```
+```{r}
+stroke_data$stroke = factor(stroke_data$stroke, levels = c(0,1), labels = c("No","Yes"))
+stroke_data$gender<-as.factor(stroke_data$gender)
+stroke_data$hypertension<- factor(stroke_data$hypertension, levels = c(0,1), labels = c("No", "Yes"))
+stroke_data$heart_disease<- factor(stroke_data$heart_disease, levels = c(0,1), labels = c("No", "Yes"))
+stroke_data$ever_married<-as.factor(stroke_data$ever_married)
+stroke_data$work_type<-as.factor(stroke_data$work_type)
+stroke_data$Residence_type<-as.factor(stroke_data$Residence_type)
+stroke_data$smoking_status<-as.factor(stroke_data$smoking_status)
+stroke_data$bmi<-as.numeric(stroke_data$bmi)
+```
+
+```{r}
+summary(stroke_data)
+```
+
+1.From Summary we can see that in gender attribute there are more female than male.
+2.After conversion of character values to numeric and factor values we can see bmi attribute contains 201 NA's values which is less than 5% of data which will not affect the accuracy. Now we have to handle the missing values of the bmi attribute.
+3.Stroke attribute is the dependant variable. 5% of data displays the patient having stroke and the rest data displays how the stroke occured.
+```{r}
+ggplot(stroke_data, aes(x = bmi)) + geom_density(color="black", fill="skyblue") + labs(title = "Distribution of BMI") 
+```
+
+```{r}
+#From the above plot, the distribution of BMI seems normal enough for Anova test requirement.
+stroke_gender_data<-stroke_data %>% filter(!is.na(bmi)) %>% select(gender,bmi)
+stroke_gender_data
+```
+
+```{r}
+one.way <- aov(bmi~gender, data = stroke_gender_data)
+summary(one.way)
+```
+
+```{r}
+stroke_married_data<-stroke_data %>% filter(!is.na(bmi)) %>% select(ever_married,bmi)
+stroke_married_data
+```
+
+```{r}
+one.way2 <- aov(bmi~ever_married, data = stroke_married_data)
+summary(one.way2)
+```
+
+
+
+#Imputation of missing values
+#Also we change the gender "Other" to "Female" as there is only one row with that particular gender.(Outlier)
+#we do the above to reduce the skew in the data
+```{r}
+colSums(is.na(stroke_data))
+stroke_data$gender[stroke_data$gender=='Other']<-'Female'
+
+median_relstatus<-(stroke_data %>% group_by(ever_married) %>% summarise(median(bmi,na.rm=TRUE)))
+median_relstatus
+
+stroke_data<-stroke_data %>% mutate(bmi=ifelse(is.na(bmi)==TRUE,ifelse(stroke_data$ever_married=="Yes",29.3,bmi),bmi),bmi)
+stroke_data<-stroke_data %>% mutate(bmi=ifelse(is.na(bmi)==TRUE,ifelse(stroke_data$ever_married=="No",23.5,bmi),bmi),bmi)
+
+#Imputing the unknowns of smoking status with the most frequent value 'never smoked'
+
+chisq.test(stroke_data$heart_disease,stroke_data$smoking_status, correct=FALSE)
+chisq.test(stroke_data$hypertension,stroke_data$smoking_status, correct=FALSE)
+chisq.test(stroke_data$work_type,stroke_data$smoking_status, correct=FALSE)
+chisq.test(stroke_data$Residence_type,stroke_data$smoking_status, correct=FALSE)
+chisq.test(stroke_data$ever_married,stroke_data$smoking_status, correct=FALSE)
+chisq.test(stroke_data$stroke,stroke_data$smoking_status, correct=FALSE)
+#hypertension, work_type and ever_married have a significant affect on each other.
+#lets table the results
+
+table(stroke_data$hypertension,stroke_data$smoking_status)
+table(stroke_data$work_type,stroke_data$smoking_status)
+
+table(stroke_data$ever_married,stroke_data$smoking_status)
+
+stroke_data$smoking_status[stroke_data$smoking_status=='Unknown']<-'never smoked'
+stroke_data$smoking_status<-droplevels(stroke_data$smoking_status)
+
+
+stroke_data$gender<-droplevels(stroke_data$gender)
+summary(stroke_data)
+```
+```{r}
+#The results give an idea that never-smoked is the most common status for all different categories.
+#Except for 'self-employed' work_type, all have the 'never smoked' status as smoking_status.
+#Hence the call here is to replace the Unknown status as never smoked for simplicity purposes.
+```
+
+
+## Bmi
+
+
+Therefore bmi contains missingness of data and missing values does not show any association with other variables, so we can assume that missing data is MCAR (Missing completely at Random). From the plot we can see that the bmi distribution is right skewed.
+
+## Gender Distribution
+```{r}
+ggplot(stroke_data, aes(x = gender, fill = gender)) + geom_bar() + theme_classic()
+```
+
+The plot represents there are more females than male and other.
+
+## Age distribution with bmi
+
+```{r}
+ggplot(stroke_data, aes(x = age, y = bmi)) + geom_point()
+```
+Standard range for bmi is divided into:
+Below:18.5
+Underweight: 18.5-24.9
+Normal: 25-29.9
+Overweight 30 and above: obese
+
+From the plot we can see most of the patient have bmi range between 10-50, there are some patients with bmi more than 50, so we can say that bmi above 50 can be considered as outliers.
+
+## Average Glucose with stroke
+
+```{r}
+ggplot(stroke_data, aes(x = stroke, y = avg_glucose_level, group = stroke, fill = stroke)) + geom_boxplot()
+```
+# 2. Exploratory Data Analysis
+
+## 2.1 EDA plan
+
+### Univariate EDA planning:
+#Numerical columns:
+1.For columns age, avg_glucose_level and bmi following are printed:
+
+-   Mean
+
+-   Median
+
+-   Max
+
+-   Min
+
+-   Standard deviation
+
+-   IQR.
+
+2.I will identify all outliers using boxplots.
+3.I will use histograms to check normal distribution and level of skew. 
+#For categorical columns
+For columns which the datatype is factor, gender, hypertension, heart_disease, ever_married, work_type, residence_type, smoking_status and stroke.
+1.bar plots & tables.
+
+### Bivariate EDA planning:
+
+#for numerical columns
+1.Box plots against target variable
+2.Correlation plot
+3.Scatterplots
+
+#for categorical columns
+1.Color coded stacked bar charts
+2.Chi square tests.
+
+## 2.2 Results
+
+### Univariate EDA
+#for Numerical columns
+#### Statistics
+
+```{r}
+mean_age = paste("The mean value of the column age is",round(mean(stroke_data$age),2))
+mean_gluc = paste("The mean value of the column average glucose level is",round(mean(stroke_data$avg_glucose_level),2))
+mean_bmi = paste("The mean value of the column bmi is",round(mean(stroke_data$bmi),2))
+
+med_age = paste("The median value of the column age is",round(median(stroke_data$age),2))
+med_gluc = paste("The median value of the column average glucose level is",round(median(stroke_data$avg_glucose_level),2))
+med_bmi = paste("The median value of the column bmi is",round(median(stroke_data$bmi),2))
+
+max_age = paste("The maximum value of the column age is",round(max(stroke_data$age),2))
+max_gluc = paste("The maximum value of the column average glucose level is",round(max(stroke_data$avg_glucose_level),2))
+max_bmi = paste("The maximum value of the column bmi is",round(max(stroke_data$bmi),2))
+
+min_age = paste("The minimum value of the column age is", round(min(stroke_data$age),2))
+min_gluc = paste("The minimum value of the column average glucose level is", round(min(stroke_data$avg_glucose_level),2))
+min_bmi = paste("The minimum value of the column bmi is", round(min(stroke_data$bmi),2))
+
+std_age = paste("The standard deviation of the column age is", round(sd(stroke_data$age),2))
+std_gluc = paste("The standard deviation of the column average glucose level is", round(sd(stroke_data$avg_glucose_level),2))
+std_bmi = paste("The standard deviation of the column bmi is", round(min(stroke_data$bmi),2))
+
+iqr_age = paste("The IQR of the column age is", round(IQR(stroke_data$age),2))
+iqr_gluc = paste("The IQR of the column average glucose level is", round(IQR(stroke_data$avg_glucose_level),2))
+iqr_bmi = paste("The IQR of the column bmi is", round(IQR(stroke_data$bmi),2))
+
+print("Age")
+print(mean_age)
+print(med_age)
+print(max_age)
+print(min_age)
+print(std_age)
+print(iqr_age)
+print("")
+print("Average Level of Glucose")
+print(mean_gluc)
+print(med_gluc)
+print(max_gluc)
+print(min_gluc)
+print(std_gluc)
+print(iqr_gluc)
+print("")
+print("BMI")
+print(mean_bmi)
+print(med_bmi)
+print(max_bmi)
+print(min_bmi)
+print(std_bmi)
+print(iqr_bmi)
+
+
+```
+
+#### Outliers
+
+```{r}
+
+out_age <- boxplot.stats(stroke_data$age)$out
+out_gluc <- c(boxplot.stats(stroke_data$avg_glucose_level)$out)
+out_bmi <- boxplot.stats(stroke_data$bmi)$out
+
+print("There are 0 outliers in the column Age")
+out_age
+print("")
+print("There are 627 outliers in the column Average Level of Glucose")
+out_gluc
+print("")
+print("There are 126 outliers in the column BMI")
+out_bmi
+
+
+```
+
+
+Although there are a significant number of outliers for average glucose level and BMI, after inspecting the data the number are all branched together and there are not significant gaps in the data.
+
+# Histograms
+By looking at Histograms we can assess whether the data has a normal distribution. As you can see below, BMI is skewed to the right and age is not normally distributed.
+
+```{r}
+hist(stroke_data$age, xlab='Age',main = paste("Histogram of Age"))
+hist(stroke_data$bmi, xlab='BMI',main = paste("Histogram of BMI"))
+hist(stroke_data$bmi, xlab='avg_glucose_level',main = paste("Histogram of average glucose level"))
+```
+#For Categorical columns
+# Bar filtered (stroke = Yes)
+By filtering the data into those patients who experienced a stroke we can see more clearly using a bar chart whether different factors are more likely to cause a stroke.
+
+```{r}
+stroke_yes <- filter(stroke_data, stroke == "Yes")
+
+plot(stroke_yes$gender)
+plot(stroke_yes$hypertension)
+plot(stroke_yes$heart_disease)
+plot(stroke_yes$ever_married)
+plot(stroke_yes$work_type)
+plot(stroke_yes$Residence_type)
+plot(stroke_yes$smoking_status)
+```
+
+#Bivariate Exploratory data Analysis
+
+
+#For categorical columns
+
+# Stacked Bar
+Based on the stacked bar below it shows a clearer picture on how different variables can affect the likeliness of having a stroke. For example, most people who have had a stroker are employed in the private sector.
+
+```{r}
+library(ggplot2)
+ggplot(stroke_data, 
+       aes(x = stroke, 
+           fill = gender)) + 
+  geom_bar(position = "stack")
+
+ggplot(stroke_data, 
+       aes(x = stroke, 
+           fill = hypertension)) + 
+  geom_bar(position = "stack")
+
+ggplot(stroke_data, 
+       aes(x = stroke, 
+           fill = heart_disease)) + 
+  geom_bar(position = "stack")
+
+ggplot(stroke_data, 
+       aes(x = stroke, 
+           fill = ever_married)) + 
+  geom_bar(position = "stack")
+
+ggplot(stroke_data, 
+       aes(x = stroke, 
+           fill = work_type)) + 
+  geom_bar(position = "stack")
+
+ggplot(stroke_data, 
+       aes(x = stroke, 
+           fill = Residence_type)) + 
+  geom_bar(position = "stack")
+
+ggplot(stroke_data, 
+       aes(x = stroke, 
+           fill = smoking_status)) + 
+  geom_bar(position = "stack")
+
+
+
+
+
+```
+
+# Chi-Sq Test
+Used for comparing two categorical variables to see if they're independent of each other.
+By using the Chi-Sq test we can check the p-value to test our dependent variable on whether it is independent of the other variable.
+
+
+```{r}
+# Compute Chi-Sq function
+summary(table(stroke_data$stroke,stroke_data$gender))
+summary(table(stroke_data$stroke,stroke_data$hypertension))
+summary(table(stroke_data$stroke,stroke_data$heart_disease))
+summary(table(stroke_data$stroke,stroke_data$ever_married))
+summary(table(stroke_data$stroke,stroke_data$work_type))
+summary(table(stroke_data$stroke,stroke_data$Residence_type))
+summary(table(stroke_data$stroke,stroke_data$smoking_status))
+
+chisq.test(stroke_data$stroke,stroke_data$gender)
+
+chisq.test(stroke_data$stroke,stroke_data$heart_disease, 
+correct=FALSE)
+
+chisq.test(stroke_data$stroke,stroke_data$ever_married, correct=FALSE)
+
+chisq.test(stroke_data$stroke,stroke_data$hypertension, correct=FALSE)
+
+chisq.test(stroke_data$stroke,stroke_data$work_type, correct=FALSE)
+
+chisq.test(stroke_data$stroke,stroke_data$Residence_type, correct=FALSE)
+
+chisq.test(stroke_data$stroke,stroke_data$smoking_status, correct=FALSE)
+```
+
+
+
+
+
+
+
+
+#For Numerical columns
+As you can see from the boxplots, 
+1. There is no conclusive evidence that BMI has an impact on having a stroke. 
+2. However, with Glucose it is evident that a higher level could contribute to having a stroke. 
+3. Also, it is clear that the older a patient is, the more likely they are to have a stroke.
+
+```{r}
+boxplot(stroke_data$bmi~stroke_data$stroke, ylab="BMI", xlab= "Stroke", col="light blue",data = stroke_data)
+boxplot(stroke_data$avg_glucose_level~stroke_data$stroke, ylab="Glucose", xlab= "Stroke", col="light blue",data = stroke_data)
+boxplot(stroke_data$age~stroke_data$stroke, ylab="Age", xlab= "Stroke", col="light blue",data = stroke_data)
+```
+```{r}
+stroke_data_binary<-stroke_data %>% mutate(stroke=factor(stroke,labels=c(0,1)))
+log.model<-glm(stroke~age, data = stroke_data_binary, family = 'binomial')
+summary(log.model)
+```
+
+#The difference between medians of age between people with and without stroke history is quite significant since the p value is very low.
+
+# matrix corrplot
+dark blue strong positive correlation, strong red negative correlation with age 
+```{r}
+library(corrplot)
+colnames(stroke_data)
+cormatrix=data.frame(stroke_data[,c(3,9,10)])
+relation=cor(cormatrix)
+par(mfrow=c(1,1))
+corrplot(relation,method="number",number.cex=0.8)
+```
+
+#pair scatter plots
+```{r}
+pairs(age~avg_glucose_level+bmi, pch = 16,col ="green", data = stroke_data)
+```
+
+
+#Data Preparation for neural network model building
+
+```{r}
+
+num_col<-c("bmi","avg_glucose_level","age")
+cat_col<-c("hypertension","heart_disease","ever_married","smoking_status","work_type","Residence_type","gender")
+
+#scaling the numerical columns
+cat_col_data<-stroke_data[,cat_col]
+num_col_data<-stroke_data[,num_col]
+
+MinMax <- function(x){
+  tx <- (x - min(x)) / (max(x) - min(x))
+  return(tx)
+}
+
+#creating dummy variables for categorical columns
+library(caret)
+num_col_minmax <- apply(num_col_data, 2, MinMax)
+dummy<- dummyVars(" ~ .", data=cat_col_data)
+dummy_df_cat_col_data <- data.frame(predict(dummy, newdata  = cat_col_data))
+dummy_df_cat_col_data
+new_stroke_df<-cbind(num_col_minmax,dummy_df_cat_col_data,stroke_data$stroke)
+colnames(new_stroke_df)[colnames(new_stroke_df) == 'stroke_data$stroke'] <- 'stroke'
+colnames(new_stroke_df)
+```
+
+
+```{r}
+#Splitting into test and train dataset
+set.seed(2019)
+n_rows <- nrow(new_stroke_df)
+training_idx <- sample(n_rows, n_rows * 0.7)
+training_data <-new_stroke_df[training_idx,]
+test_data <-new_stroke_df[-training_idx,]
+colnames(training_data)
+```
+```{r}
+#Splitting dataset into test and train dataset using stratified sampling
+library(caret)
+library(lattice)
+library(neuralnet)
+train.index <- createDataPartition(new_stroke_df$stroke, p = .7, list = FALSE)
+train <- new_stroke_df[ train.index,]
+test  <- new_stroke_df[-train.index,]
+```
+
+```{r}
+#training the Fully connected Artificial Neural Network using random sampling
+stroke_nn<-neuralnet(stroke~.,data=training_data,threshold=0.4,hidden=c(21,10,6,3,2))
+```
+```{r}
+#training the Fully connected Artificial Neural Network using stratified sampling
+stroke_nn_2<-neuralnet(stroke~.,data=train,threshold=0.4,hidden=c(21,10,6,3,2))
+```
+
+
+```{r}
+#computing predictions for the test dataset using the trained neural network
+nn_1 <- compute(stroke_nn, test_data[,-22])
+unique(round(nn_1$net.result[,1]))
+x<-factor(round(nn_1$net.result[,1]),labels=c("No","Yes"))
+nn_results <- data.frame(actual = test_data$stroke,predicted =x)
+```
+```{r}
+##computing predictions for the test dataset using the trained neural network (stratified_sampled dataset)
+nn_2 <- compute(stroke_nn_2, test[,-22])
+y<-factor(round(nn_2$net.result[,1]),labels=c("No","Yes"))
+nn_results_2 <- data.frame(actual = test$stroke,predicted =y)
+```
+
+```{r}
+#generating a confusion matrix from the predictions of first neural network
+table_stroke_results <- table(nn_results)
+table_stroke_results
+
+```
+```{r}
+TN=sum(nn_results$actual=='No'& nn_results$predicted=='Yes')
+TN
+TP=sum(nn_results$actual=='Yes'& nn_results$predicted=='Yes')
+TP
+FP=sum(nn_results$actual=='No'& nn_results$predicted=='No')
+FP
+FN=sum(nn_results$actual=='Yes'& nn_results$predicted=='No')
+FN
+```
+```{r}
+accuracy = (TN + TP) / (TN + TP + FN + FP) 
+precision = TP / (TP + FP)
+recall = TP / (TP + FN)
+specificity = (TN)/(TN + FP)
+sensitivity = (TP)/(TP + FN)
+F1 = 2 * (precision*recall) / (precision + recall)
+
+```
+```{r}
+paste('precision:' , precision) 
+paste('recall: ' , recall) 
+paste(' accuracy: ' , accuracy) 
+paste(' F1 score: ' , F1)
+paste('n specificity: ' , specificity) 
+paste('n sensitivity: ' , sensitivity) 
+```
+
+```{r}
+#generating a confusion matrix from the predictions of second neural network
+table_stroke_results_2 <- table(nn_results_2)
+table_stroke_results_2
+```
+```{r}
+TN2=sum(nn_results_2$actual=='No'& nn_results_2$predicted=='Yes')
+TP2=sum(nn_results_2$actual=='Yes'& nn_results_2$predicted=='Yes')
+
+FP2=sum(nn_results_2$actual=='No'& nn_results_2$predicted=='No')
+FN2=sum(nn_results_2$actual=='Yes'& nn_results_2$predicted=='No')
+```
+
+```{r}
+accuracy2 = (TN2+ TP2) / (TN2 + TP2 + FN2 + FP2) 
+precision2 = TP2/ (TP2 + FP2)
+recall2 = TP2 / (TP2 + FN2)
+Fsc2 = 2 * (precision2*recall2) / (precision2 + recall2)
+specificity2 = (TN)/(TN2 + FP2)
+sensitivity2 = (TP2)/(TP2 + FN2)
+
+```
+
+
+```{r}
+paste('precision: ',precision2) 
+paste('recall: ' ,recall2) 
+paste('accuracy: ' , accuracy2) 
+paste('F1 score: ' , Fsc2)
+paste('specificity: ' , specificity2) 
+paste('sensitivity: ' , sensitivity2) 
+```
+
+
+# Aggregating actual and predicted labels in a dataset for better evaluation implementation
+```{r}
+raw_pred<-factor(round(nn_1$net.result[,1]),labels=c("No","Yes"))
+nn_predict <-  data.frame(actual = test_data[,22],predicted = raw_pred,No=nn_1$net.result[,1], yes=nn_1$net.result[,2])
+summary(nn_predict) 
+
+```
+
+
+```{r}
+raw_pred_2<-factor(round(nn_2$net.result[,1]),labels=c("No","Yes"))
+nn_predict_2 <-  data.frame(actual = test[,22],predicted = raw_pred_2,No=nn_2$net.result[,1], yes=nn_2$net.result[,2])
+summary(nn_predict_2) 
+```
+
+
+
+
+```{r}
+#generating a performance and prediction object for plotting a ROC curve for the first Neural Network Model.(with randomly sampled train and test dataset)
+library(ROCR)
+nn_models_prob <- data.frame(predicted=nn_predict$yes)
+nn_models_prob
+nn_label <- data.frame(actual=nn_predict$actual)
+nn_label
+nn_ROC_pred = ROCR::prediction(nn_models_prob,nn_label)
+typeof(nn_ROC_pred)
+nn_ROC_perf = performance(nn_ROC_pred, "tpr", "fpr",)
+
+
+```
+
+
+```{r}
+opar <- par(no.readonly = TRUE)
+par(pty = 's')
+plot(
+ nn_ROC_perf,
+ col = as.list(c("orange"))
+)
+abline(a = 0, b = 1, lty = 2, col = 'red')
+legend(
+  "bottomright",
+  names(nn_models_prob),
+  col = c("orange", "blue"),
+  lty = 1,
+  bty = 'n'
+)
+auc_nn<-performance(nn_ROC_pred,"auc")
+auc<-unlist(slot(auc_nn,"y.values"))
+auc<-round(auc,4)
+legend(.6,.2,auc,title="AUC")
+par <- opar
+
+```
+
+```{r}
+#generating a performance and prediction object for plotting a ROC curve for the second Neural Network Model.(with stratified sampled train and test dataset)
+nn_models_prob_2 <- data.frame(predicted=nn_predict_2$yes)
+nn_models_prob_2
+nn_label_2 <- data.frame(actual=nn_predict_2$actual)
+nn_label_2
+nn_ROC_pred_2 = ROCR::prediction(nn_models_prob_2,nn_label_2)
+typeof(nn_ROC_pred_2)
+nn_ROC_perf_2 = performance(nn_ROC_pred_2, "tpr", "fpr")
+```
+
+```{r}
+opar <- par(no.readonly = TRUE)
+par(pty = 's')
+plot(
+ nn_ROC_perf_2,
+ col = as.list(c("orange"))
+)
+abline(a = 0, b = 1, lty = 2, col = 'red')
+legend(
+  "bottomright",
+  names(nn_models_prob_2),
+  col = c("orange", "blue"),
+  lty = 1,
+  bty = 'n'
+)
+auc_nn2<-performance(nn_ROC_pred_2,"auc")
+auc2<-unlist(slot(auc_nn2,"y.values"))
+auc2<-round(auc2,4)
+legend(.6,.2,auc2,title="AUC")
+par <- opar
+```
